@@ -1,165 +1,155 @@
 # SnackOS
 
-<p align="center">
-  <strong>One button. One tiny screen. A local automation engine that prepares your snack cart.</strong>
-</p>
+Turn an ESP32 into a one-button Blinkit ordering device.
+
+Press a physical button. SnackOS sends a request to your local FastAPI server, starts Playwright with your persistent Blinkit profile, waits for you to confirm the delivery address in the browser, searches products intelligently, verifies exact quantities, prepares the cart, and safely stops before payment.
 
 <p align="center">
-  <code>[ Project logo placeholder: images/logo.svg ]</code>
+  <img alt="MIT License" src="https://img.shields.io/badge/License-MIT-blue.svg">
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.11%2B-3776AB.svg">
+  <img alt="ESP32" src="https://img.shields.io/badge/ESP32-Arduino_Core-00979D.svg">
+  <img alt="Arduino" src="https://img.shields.io/badge/Arduino-Compatible-00878F.svg">
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-Backend-009688.svg">
+  <img alt="Playwright" src="https://img.shields.io/badge/Playwright-Chromium-2EAD33.svg">
 </p>
 
-<p align="center">
-  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-MIT-blue.svg"></a>
-  <a href="#"><img alt="Python" src="https://img.shields.io/badge/Python-3.11%2B-3776AB.svg"></a>
-  <a href="#"><img alt="ESP32" src="https://img.shields.io/badge/ESP32-Arduino-00979D.svg"></a>
-  <a href="#"><img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-Backend-009688.svg"></a>
-  <a href="#"><img alt="Playwright" src="https://img.shields.io/badge/Playwright-Automation-2EAD33.svg"></a>
-  <a href="#"><img alt="Stars" src="https://img.shields.io/github/stars/your-org/snackos?style=social"></a>
-  <a href="#"><img alt="Issues" src="https://img.shields.io/github/issues/your-org/snackos"></a>
-  <a href="#"><img alt="Pull Requests" src="https://img.shields.io/github/issues-pr/your-org/snackos"></a>
-</p>
-
-SnackOS is an embedded-to-browser automation project that turns a physical ESP32
-button press into a structured shopping request. The device owns the tactile UI:
-boot animation, Wi-Fi state, order state, and error feedback on a compact ST7789
-display. The backend owns the hard parts: request validation, product matching,
-cart quantity verification, and safe browser automation.
-
-The ESP32 never knows Blinkit selectors, product URLs, browser state, cookies, or
-checkout details. It only sends a shopping list to a local FastAPI endpoint.
-
-> Safety boundary: SnackOS prepares the cart and reaches the checkout-ready
-> screen. It does not click payment controls and does not place the final order.
+> [!IMPORTANT]
+> SnackOS prepares the Blinkit cart and reaches a checkout-ready state. It does not click payment controls and does not place the final order.
 
 ---
 
-## Demo
+## Features
 
-| Demo Asset | Status |
+|  | Capability |
 | --- | --- |
-| Product walkthrough GIF | `images/demo.gif` placeholder |
-| ESP32 boot animation | `images/boot.gif` placeholder |
-| Checkout-ready automation | `images/checkout-ready.gif` placeholder |
+| ✅ | ESP32 hardware interface with physical button input |
+| ✅ | ST7789 240x135 embedded UI for boot, Wi-Fi, ready, order, and error states |
+| ✅ | Local FastAPI backend with structured request validation |
+| ✅ | Human-like Blinkit automation through Playwright Chromium |
+| ✅ | Interactive delivery address selection in the live browser |
+| ✅ | Dynamic product search with no hardcoded product URLs |
+| ✅ | Product matching by query, keywords, title similarity, availability, and exact price |
+| ✅ | Exact quantity verification from the rendered Blinkit UI |
+| ✅ | Cart verification before checkout navigation |
+| ✅ | Checkout-safe architecture that blocks payment and final order actions |
+| ✅ | Persistent browser profile so Blinkit login remains local |
+| ✅ | ESP32 stays isolated from Blinkit selectors, cookies, and browser details |
 
-```text
-[ Demo GIF placeholder ]
-ESP32 button press -> FastAPI request -> Playwright cart preparation -> checkout ready
-```
-
-## Screenshots
-
-| Screen | Placeholder |
-| --- | --- |
-| Boot | `images/screenshots/boot.png` |
-| Connecting Wi-Fi | `images/screenshots/wifi.png` |
-| Ready | `images/screenshots/ready.png` |
-| Order placed | `images/screenshots/order-placed.png` |
-| Server offline | `images/screenshots/server-offline.png` |
-
-Generated debug screenshots are ignored by Git. Public screenshots should be
-sanitized before being added.
-
-## Why SnackOS?
-
-SnackOS is a compact reference project for real-world, multi-layer automation:
-
-- embedded UI and hardware input
-- Wi-Fi and HTTP on ESP32
-- local Python API orchestration
-- browser automation with a persistent profile
-- safety guards around checkout and payment
-- structured JSON responses back to firmware
-
-## Feature Comparison
-
-| Capability | SnackOS | Typical Button Script | Generic Browser Bot |
-| --- | --- | --- | --- |
-| Physical hardware trigger | Yes | Sometimes | No |
-| Embedded TFT UI | Yes | No | No |
-| Request-driven shopping list | Yes | Rarely | Sometimes |
-| ESP32 isolated from selectors | Yes | No | Not applicable |
-| Persistent login profile | Yes | Often ad hoc | Often |
-| Exact quantity verification | Yes | Often missing | Varies |
-| Stops before payment | Yes | Varies | Varies |
-| Structured API response | Yes | No | Varies |
-| Open-source docs and safety notes | Yes | Rarely | Varies |
+---
 
 ## Architecture
 
 ```mermaid
-flowchart LR
-  subgraph Device["ESP32 Device"]
-    Button["GPIO27 Button"]
-    TFT["ST7789 240x135 UI"]
-    Firmware["SnackOS Firmware"]
-    Button --> Firmware
-    Firmware --> TFT
-  end
-
-  subgraph Network["Local Network"]
-    WiFi["Wi-Fi"]
-    API["FastAPI /order"]
-  end
-
-  subgraph Backend["Python Backend"]
-    Validator["Pydantic Request Models"]
-    Engine["Request-Driven Shopping Engine"]
-    Browser["Playwright Chromium"]
-  end
-
-  subgraph Commerce["Blinkit Web"]
-    Search["Search Results"]
-    Product["Product Page"]
-    Cart["Verified Cart"]
-    Checkout["Checkout Ready"]
-  end
-
-  Firmware --> WiFi --> API --> Validator --> Engine --> Browser
-  Browser --> Search --> Product --> Cart --> Checkout
-  Checkout -. "no payment / no place order" .-> Engine
-  Engine --> API --> Firmware
+graph TD
+  ESP32["ESP32 + Button + ST7789"] --> WiFi["Wi-Fi"]
+  WiFi --> FastAPI["FastAPI Backend"]
+  FastAPI --> Playwright["Playwright Shopping Engine"]
+  Playwright --> Chromium["Persistent Chromium Profile"]
+  Chromium --> Blinkit["Blinkit Web"]
+  Blinkit --> Cart["Verified Cart"]
+  Cart --> Checkout["Checkout Ready"]
+  Checkout --> Stop["STOP before payment"]
 ```
 
-## Request Lifecycle
+SnackOS is split into two clear responsibilities:
 
-```text
-Button press
-  -> ESP32 POST /order
-  -> FastAPI validates shopping list
-  -> Playwright launches persistent Chromium profile
-  -> Blinkit login is verified
-  -> Each item is searched and matched by query + price
-  -> Quantity is adjusted and re-read from the UI
-  -> Cart is opened and verified
-  -> Safe Proceed / Continue button is clicked
-  -> Backend returns structured JSON
-  -> ESP32 displays success or error
+| Layer | Responsibility |
+| --- | --- |
+| ESP32 firmware | Hardware input, TFT UI, Wi-Fi, and HTTP request dispatch |
+| FastAPI backend | Request validation, browser orchestration, product matching, quantity checks, and checkout boundary enforcement |
+
+The ESP32 never needs to know product names, Blinkit URLs, selectors, cookies, or checkout UI details. It sends a shopping list. The backend handles the web automation.
+
+---
+
+## Workflow
+
+```mermaid
+flowchart TD
+  A["Button Press"] --> B["POST /order"]
+  B --> C["Request Validation"]
+  C --> D["Browser Launch"]
+  D --> E["Login Verification"]
+  E --> F["Address Confirmation"]
+  F --> G["Search Products"]
+  G --> H["Verify Product Match"]
+  H --> I["Set Exact Quantity"]
+  I --> J["Verify Cart"]
+  J --> K["Proceed / Continue"]
+  K --> L["Checkout Ready"]
+  L --> M["STOP"]
+
+  M -. "Never clicks Place Order, Pay, UPI, Card, or Netbanking" .-> M
 ```
 
-## Folder Structure
+The address stage is intentionally human-in-the-loop. SnackOS opens the address selector, highlights the relevant panel, observes the active delivery address, and continues only after the browser shows a valid active address.
+
+---
+
+## Why SnackOS
+
+SnackOS is designed as a hardware-first automation system rather than a hidden background bot.
+
+| Principle | What it means |
+| --- | --- |
+| No Blinkit APIs | SnackOS uses the public Blinkit website through browser automation. |
+| Human-like interaction | Product search, selection, cart changes, and checkout navigation happen through Chromium. |
+| Hardware-first interface | A real button and a tiny TFT make the ordering flow tangible. |
+| Backend isolation | The ESP32 only talks to a REST API and stays unaware of Blinkit internals. |
+| Safety-first checkout boundary | Automation stops at checkout readiness and avoids payment/final-order controls. |
+
+This makes the project useful as a reference for embedded UI, local APIs, browser automation, and careful safety boundaries around real commerce sites.
+
+---
+
+## Safety
+
+SnackOS never clicks:
+
+| Forbidden action | Status |
+| --- | --- |
+| Place Order | Blocked |
+| Pay | Blocked |
+| UPI | Blocked |
+| Card | Blocked |
+| Netbanking | Blocked |
+| Payment methods | Blocked |
+
+SnackOS only prepares and verifies the cart. The final purchase decision remains with the user.
+
+Additional safeguards:
+
+- The persistent Blinkit profile is local and ignored by Git.
+- Wi-Fi credentials live in `config.h`, which is ignored by Git.
+- Product URLs are not hardcoded in the shopping flow.
+- Cart quantities are verified from the visible UI after changes.
+- The checkout button is treated as the final safe automation boundary.
+
+---
+
+## Project Structure
 
 ```text
 SnackOS/
-├── SnackOS.ino                # Arduino IDE sketch entry
-├── main.ino                   # Firmware state machine
-├── config.example.h           # Safe public config template
-├── api.cpp / api.h            # ESP32 HTTP API client
-├── wifi.cpp / wifi.h          # Wi-Fi manager
-├── display.cpp / display.h    # ST7789 wrapper
-├── ui.cpp / ui.h              # TFT rendering
-├── button.cpp / button.h      # Debounced button input
-├── state.h                    # Firmware state definitions
+├── SnackOS.ino
+├── main.ino
+├── config.example.h
+├── api.cpp / api.h
+├── wifi.cpp / wifi.h
+├── display.cpp / display.h
+├── ui.cpp / ui.h
+├── button.cpp / button.h
+├── state.h
 ├── server/
-│   ├── main.py                # FastAPI application
-│   ├── blinkit_automation.py  # Playwright shopping engine
-│   └── requirements.txt       # Python dependencies
+│   ├── main.py
+│   ├── blinkit_automation.py
+│   └── requirements.txt
 ├── docs/
 │   ├── API.md
 │   ├── Architecture.md
 │   ├── Development.md
 │   └── Hardware.md
 ├── images/
-│   └── .gitkeep
 ├── .github/
 │   ├── ISSUE_TEMPLATE/
 │   └── pull_request_template.md
@@ -169,18 +159,35 @@ SnackOS/
 └── README.md
 ```
 
-## Hardware Overview
+| Path | Purpose |
+| --- | --- |
+| `SnackOS.ino`, `main.ino` | Arduino IDE entrypoints and firmware state machine |
+| `api.*` | ESP32 HTTP client for the local backend |
+| `wifi.*` | ESP32 Wi-Fi connection management |
+| `display.*` | ST7789 display setup and low-level drawing wrapper |
+| `ui.*` | Embedded UI screens and animations |
+| `button.*` | Debounced GPIO27 button input |
+| `state.h` | Firmware state definitions |
+| `server/main.py` | FastAPI app and API models |
+| `server/blinkit_automation.py` | Playwright shopping engine |
+| `docs/` | Architecture, API, hardware, and development documentation |
+| `.github/` | Issue and pull request templates |
+| `images/` | Public screenshots and visual assets when sanitized |
+
+---
+
+## Hardware
 
 | Component | Role |
 | --- | --- |
-| ESP32 Dev Module | Firmware runtime, Wi-Fi, GPIO input, display control |
-| ST7789 240x135 TFT | SnackOS UI |
+| ESP32 Dev Module | Firmware runtime, Wi-Fi, GPIO input, and display control |
+| ST7789 240x135 TFT | SnackOS embedded UI |
 | Momentary push button | Physical order trigger |
-| USB power | Development power and serial logging |
+| USB power/data | Power, flashing, and serial logs |
 
 ### Wiring
 
-| ST7789 | ESP32 |
+| ST7789 Pin | ESP32 GPIO |
 | --- | --- |
 | CS | GPIO15 |
 | DC | GPIO2 |
@@ -193,29 +200,23 @@ SnackOS/
 | Signal | GPIO27 |
 | Other side | GND |
 
-GPIO27 uses `INPUT_PULLUP`, so pressed is `LOW`.
+GPIO27 uses `INPUT_PULLUP`, so the pressed state is `LOW`.
 
-## Software Stack
+---
 
-| Layer | Stack |
-| --- | --- |
-| Firmware | Arduino ESP32 core |
-| Display | Adafruit GFX, Adafruit ST7789 |
-| Firmware JSON | ArduinoJson |
-| Backend API | Python, FastAPI, Pydantic, Uvicorn |
-| Automation | Playwright for Python, Chromium |
-| Auth state | Local persistent Chromium profile |
+## Installation
 
-## Quick Start
+### Firmware
 
-### 1. Clone
+Install the ESP32 Arduino core in Arduino IDE, then install these libraries:
 
-```bash
-git clone https://github.com/your-org/snackos.git
-cd snackos
+```text
+Adafruit GFX
+Adafruit ST7789
+ArduinoJson
 ```
 
-### 2. Create Local Firmware Config
+Create your local firmware config:
 
 ```bash
 cp config.example.h config.h
@@ -226,22 +227,29 @@ Edit `config.h`:
 ```cpp
 constexpr const char* WIFI_SSID = "YOUR_WIFI_SSID";
 constexpr const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
-constexpr const char* SERVER_URL = "http://YOUR_LOCAL_IP:8000/order";
+constexpr const char* SERVER_URL = "http://YOUR_COMPUTER_LAN_IP:8000/order";
 ```
 
-`config.h` is ignored and should never be committed.
+`config.h` is intentionally ignored because it contains local credentials.
 
-### 3. Install Backend
+### Backend
 
 ```bash
 cd server
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
+```
+
+### Playwright
+
+```bash
+cd server
+. .venv/bin/activate
 playwright install chromium
 ```
 
-### 4. Log Into Blinkit Manually
+Log into Blinkit once using the persistent Chromium profile:
 
 ```bash
 cd server
@@ -254,10 +262,11 @@ asyncio.run(login_blinkit())
 PY
 ```
 
-Log in, then close Chromium. The profile is stored locally at
-`server/blinkit-profile/` and ignored by Git.
+The browser profile is stored at `server/blinkit-profile/` and must never be committed.
 
-### 5. Start Backend
+### Running
+
+Start the backend:
 
 ```bash
 cd server
@@ -265,66 +274,67 @@ cd server
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-### 6. Flash ESP32
-
-Open `SnackOS.ino` in Arduino IDE, select your ESP32 board, and upload.
-
-## Installation Guide
-
-### Firmware Dependencies
-
-Install these Arduino libraries:
-
-- Adafruit GFX
-- Adafruit ST7789
-- ArduinoJson
-
-The ESP32 Arduino core supplies `WiFi.h`, `HTTPClient.h`, and `SPI.h`.
-
-### Backend Dependencies
-
-Dependencies are pinned in `server/requirements.txt`:
+Flash the ESP32:
 
 ```text
-fastapi
-uvicorn[standard]
-playwright
+Open SnackOS.ino in Arduino IDE
+Select your ESP32 board
+Select the correct serial port
+Upload
 ```
 
-## API Examples
+Press the physical button after the device reaches the READY screen.
 
-### Health Check
+---
 
-```bash
-curl http://localhost:8000/
-```
+## API
+
+### Endpoints
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/` | Health check |
+| `POST` | `/order` | Validate a shopping list and prepare the Blinkit cart |
+
+### `GET /`
+
+Response:
 
 ```text
 SnackOS Server Running
 ```
 
-### Place Shopping Request
+### `POST /order`
 
-```bash
-curl -X POST http://localhost:8000/order \
-  -H "Content-Type: application/json" \
-  -d '{
-    "items": [
-      {
-        "query": "Uncle Chipps Spicy Treat",
-        "price": 20,
-        "quantity": 2
-      },
-      {
-        "query": "Cadbury Dairy Milk Fruit & Nut",
-        "price": 50,
-        "quantity": 2
-      }
-    ]
-  }'
+Request body:
+
+```json
+{
+  "items": [
+    {
+      "query": "Uncle Chipps Spicy Treat",
+      "price": 20,
+      "quantity": 2
+    },
+    {
+      "query": "Cadbury Dairy Milk Fruit & Nut",
+      "price": 50,
+      "quantity": 2
+    }
+  ]
+}
 ```
 
-### Success Response
+Request fields:
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `items` | array | Yes | Shopping list processed in order |
+| `items[].query` | string | Yes | Human search query used on Blinkit |
+| `items[].price` | integer | Yes | Expected product price in rupees |
+| `items[].quantity` | integer | Yes | Desired cart quantity, from 1 to 20 |
+
+Success response:
 
 ```json
 {
@@ -333,187 +343,90 @@ curl -X POST http://localhost:8000/order \
   "items": [
     {
       "query": "Uncle Chipps Spicy Treat",
-      "matched_title": "Uncle Chipps Spicy Treat Flavour Potato Chips 53 g ₹20 2",
+      "matched_title": "Uncle Chipps Spicy Treat Flavour Potato Chips",
       "price": 20,
-      "quantity": 2,
-      "status": "added"
-    },
-    {
-      "query": "Cadbury Dairy Milk Fruit & Nut",
-      "matched_title": "Cadbury Dairy Milk Fruit & Nut Chocolate Bar Cricket Pack 36 g ₹50 2",
-      "price": 50,
       "quantity": 2,
       "status": "added"
     }
   ],
   "eta": "Blinkit Checkout Ready",
-  "cart_total": "₹140",
+  "cart_total": "₹40",
   "message": "Cart prepared successfully."
 }
 ```
 
-### Structured Failure
+Response fields:
 
-```json
-{
-  "success": false,
-  "checkout_ready": false,
-  "stage": "add_item",
-  "failed_item": {
-    "query": "Example Product",
-    "price": 10,
-    "quantity": 1
-  },
-  "items": [],
-  "error": "Failed to add requested item 'Example Product': No confident product match",
-  "eta": "Failed to add requested item 'Example Product': No confident product match"
-}
-```
+| Field | Type | Description |
+| --- | --- | --- |
+| `success` | boolean | Whether the automation completed successfully |
+| `checkout_ready` | boolean | Whether the browser reached the checkout-ready boundary |
+| `items` | array | Per-item result details |
+| `items[].query` | string | Original requested query |
+| `items[].matched_title` | string | Product title selected from Blinkit |
+| `items[].price` | integer | Expected price used for matching |
+| `items[].quantity` | integer | Verified target quantity |
+| `items[].status` | string | Item processing status |
+| `eta` | string or null | Firmware-facing status text |
+| `cart_total` | string or null | Visible cart total when detected |
+| `message` | string or null | Human-readable result summary |
 
-## Safety Guarantees
+Failure responses are structured and include the failing stage or error message when available.
 
-| Safety Rule | Status |
+---
+
+## Screenshots
+
+| Area | Gallery Slot |
 | --- | --- |
-| ESP32 never stores Blinkit selectors | Enforced by architecture |
-| Browser login stays local | `server/blinkit-profile/` is ignored |
-| Local Wi-Fi credentials are not committed | `config.h` is ignored |
-| Quantity is verified before checkout | Implemented in automation flow |
-| Payment buttons are not clicked | Guarded by forbidden checkout patterns |
-| Final order is not placed | The flow stops at checkout readiness |
-| Debug screenshots/HTML are not committed | Ignored by `.gitignore` |
+| ESP32 Interface | Add screenshot here |
+| Blinkit Search | Add screenshot here |
+| Cart Verification | Add screenshot here |
+| Checkout Ready | Add screenshot here |
 
-## Performance Notes
+Sanitize screenshots before publishing. Do not include addresses, phone numbers, cookies, browser profile data, or order details.
 
-- The backend uses a persistent Chromium profile to avoid repeated login.
-- Product matching inspects visible cards and favors exact price matches.
-- The firmware uses non-blocking state transitions for runtime behavior.
-- Network idle can time out on modern commerce pages; the automation continues
-  from visible UI state when safe to do so.
-- First Playwright launch is slower than subsequent launches because Chromium
-  may warm caches.
-
-## Roadmap
-
-| Stage | Work |
-| --- | --- |
-| v0.1 | Public release docs, hardware wiring, local backend setup |
-| v0.2 | Test harness for product ranking and cart parsing |
-| v0.3 | Optional mock commerce site for CI |
-| v0.4 | Web dashboard for shopping list presets |
-| v0.5 | Captive portal Wi-Fi setup for firmware |
-| v1.0 | Stable hardware enclosure, signed release artifacts, CI validation |
-
-## Future Plans
-
-- Add CI for Python compile/import checks.
-- Add a firmware compile guide for Arduino CLI.
-- Add a safe simulated shopping backend for contributors without Blinkit access.
-- Add sanitized screenshots and a short build video.
-- Add support abstractions for multiple grocery platforms.
+---
 
 ## Troubleshooting
 
-<details>
-<summary>ESP32 cannot reach the backend</summary>
+| Problem | What to check |
+| --- | --- |
+| ESP32 cannot reach the backend | Use your computer's LAN IP in `SERVER_URL`; `localhost` points to the ESP32 itself. |
+| Backend says login is required | Run `login_blinkit()` and complete login in the opened Chromium window. |
+| Address selection does not continue | Ensure the Blinkit page shows an active delivery address after choosing it. |
+| Product is not matched | Confirm the query, expected price, availability, and visible search result text. |
+| Cart verification fails | Check backend logs and inspect any local failure HTML/screenshot artifacts. |
+| TFT is blank | Verify power, ground, ST7789 wiring, and board selection in Arduino IDE. |
 
-Use your computer's LAN IP in `SERVER_URL`. `localhost` points to the ESP32
-itself, not your development machine.
-
-</details>
-
-<details>
-<summary>Backend says Blinkit login is required</summary>
-
-Run the manual login helper and log in through the opened Chromium window. Close
-the browser after login is complete.
-
-</details>
-
-<details>
-<summary>The cart is not verified</summary>
-
-Blinkit UI may have changed, an item may be out of stock, or the visible product
-price may differ from the request. Check backend logs and generated local debug
-artifacts. Do not commit those artifacts.
-
-</details>
-
-<details>
-<summary>The TFT is blank</summary>
-
-Check power, ground, SPI wiring, and the ST7789 dimensions in `config.h`. The
-current firmware targets a 240x135 panel.
-
-</details>
-
-<details>
-<summary>Playwright installation fails</summary>
-
-Confirm the virtual environment is active, then run:
-
-```bash
-playwright install chromium
-```
-
-</details>
-
-## FAQ
-
-<details>
-<summary>Does SnackOS place the final order?</summary>
-
-No. SnackOS prepares the cart and stops at checkout readiness. It does not click
-payment or final order placement controls.
-
-</details>
-
-<details>
-<summary>Can the ESP32 request different products?</summary>
-
-Yes. The backend API accepts a shopping list with query, price, and quantity.
-The ESP32 does not need to know browser automation details.
-
-</details>
-
-<details>
-<summary>Can this support another grocery platform?</summary>
-
-Yes, but platform-specific browser logic should live behind a backend adapter.
-See [docs/Development.md](docs/Development.md).
-
-</details>
-
-<details>
-<summary>Why is the browser profile ignored?</summary>
-
-It contains authentication state, cookies, local storage, and session data. It
-must remain local.
-
-</details>
+---
 
 ## Documentation
 
-- [Architecture](docs/Architecture.md)
-- [API Reference](docs/API.md)
-- [Hardware Guide](docs/Hardware.md)
-- [Development Guide](docs/Development.md)
-- [Contributing](CONTRIBUTING.md)
-- [Security](SECURITY.md)
+| Document | Description |
+| --- | --- |
+| [Architecture](docs/Architecture.md) | System design, request lifecycle, automation safety, and checkout boundary |
+| [Hardware](docs/Hardware.md) | ESP32 wiring, button setup, display notes, and power guidance |
+| [Development](docs/Development.md) | Local workflow, coding conventions, and platform extension notes |
+| [API](docs/API.md) | Endpoint reference and request/response examples |
+| [Contributing](CONTRIBUTING.md) | Contribution workflow and pull request expectations |
+| [Security](SECURITY.md) | Credential, browser profile, and responsible disclosure guidance |
 
-## Acknowledgements
+---
 
-SnackOS builds on excellent open-source tools:
+## Built With
 
-- Arduino ESP32 core
-- Adafruit GFX
-- Adafruit ST7789
-- ArduinoJson
-- FastAPI
-- Pydantic
-- Uvicorn
-- Playwright
+| Layer | Tools |
+| --- | --- |
+| Hardware | ESP32, ST7789, push button |
+| Firmware | Arduino ESP32 core, Adafruit GFX, Adafruit ST7789, ArduinoJson |
+| Backend | Python, FastAPI, Pydantic, Uvicorn |
+| Automation | Playwright, Chromium |
 
 ## License
 
 SnackOS is released under the [MIT License](LICENSE).
 
+---
+
+⭐ If you like this project, consider starring the repository.

@@ -40,6 +40,10 @@ class BlinkitAutomationError(RuntimeError):
     pass
 
 
+class AddressSelectionError(BlinkitAutomationError):
+    pass
+
+
 @dataclass(frozen=True)
 class ProductTarget:
     index: int
@@ -203,6 +207,8 @@ async def test_blinkit_automation() -> dict[str, object]:
             await wait_for_page(page)
             result["logged_in"] = await is_logged_in_without_clicking(page)
             log_step(f"Logged in: {result['logged_in']}")
+            if result["logged_in"]:
+                await ensure_delivery_address_selected(page)
 
             uncle = await find_best_product(
                 page,
@@ -329,6 +335,7 @@ async def debug_search_flow() -> None:
         await verify_logged_in(page)
         await page.goto(BLINKIT_HOME_URL, wait_until="domcontentloaded")
         await wait_for_page(page)
+        await ensure_delivery_address_selected(page)
         await save_stage_screenshot(page, "stage1_home.png")
         await debug_pause("=== STAGE 1 COMPLETE ===")
 
@@ -455,6 +462,7 @@ async def prepare_cart_with_search(
         page.set_default_timeout(10_000)
 
         await verify_logged_in(page)
+        await ensure_delivery_address_selected(page)
 
         item_results: list[dict[str, object]] = []
         selected_products: list[dict[str, object]] = []
@@ -517,7 +525,15 @@ async def prepare_cart_with_search(
         if page is not None:
             await handle_automation_failure(page, exc)
         if context is not None:
-            await context.close()
+            if isinstance(exc, AddressSelectionError):
+                print(
+                    "Address selection failed. Chromium is open for inspection. "
+                    "Close the browser window when finished.",
+                    flush=True,
+                )
+                await wait_for_browser_close(context)
+            else:
+                await context.close()
             context_closed = True
         raise
     finally:
@@ -538,6 +554,673 @@ async def verify_logged_in(page: Page) -> None:
             "then retry the automation."
         )
     log_step("Blinkit login verified")
+
+
+async def ensure_delivery_address_selected(page: Page) -> None:
+    timeline("WAITING", "delivery address selection")
+    await page.goto(BLINKIT_HOME_URL, wait_until="domcontentloaded")
+    await wait_for_page(page)
+    await dismiss_overlays(page)
+
+    initial_address = await read_active_delivery_address(page)
+    entrypoint = await find_address_selection_entrypoint(page)
+    if entrypoint is None:
+        await fail_address_selection(
+            page,
+            "Could not find the Blinkit delivery address selector.",
+        )
+
+    await clear_debug_highlights(page)
+    await highlight_locator(entrypoint, "delivery address control")
+    timeline("CLICKING", "delivery address control")
+    await retry_click(entrypoint, "delivery address control")
+    await wait_for_page(page)
+
+    address_area = await find_address_selection_area(page)
+    if address_area is None:
+        await fail_address_selection(
+            page,
+            "Could not detect the Blinkit address selection panel.",
+        )
+
+    await clear_debug_highlights(page)
+    await highlight_locator(address_area, "address selection area")
+    print("Please select the desired delivery address in Blinkit.", flush=True)
+    print(
+        "SnackOS will continue automatically after the active address is detected.",
+        flush=True,
+    )
+    await wait_for_delivery_address_selection(page, initial_address)
+    await wait_for_page(page)
+
+    active_address = await read_active_delivery_address(page)
+    if not active_address:
+        await fail_address_selection(
+            page,
+            "No active delivery address could be detected after address selection.",
+        )
+
+    active_locator = page.locator("[data-snackos-active-address='true']").first
+    try:
+        if await active_locator.count() and await active_locator.is_visible(timeout=1_000):
+            await clear_debug_highlights(page)
+            await highlight_locator(active_locator, "active delivery address")
+    except Exception as exc:
+        timeline("WAITING", f"active address highlight skipped: {exc}")
+
+    log_step(f"Selected delivery address: {active_address}")
+    timeline("SUCCESS", "active delivery address confirmed")
+
+
+async def wait_for_delivery_address_selection(
+    page: Page,
+    initial_address: str | None,
+) -> None:
+    timeline("WAITING", "user address selection in Blinkit")
+    handle = await page.wait_for_function(
+        """
+        ({ initialAddress }) => {
+          const visible = (el) => {
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            return rect.width > 0 &&
+              rect.height > 0 &&
+              style.visibility !== "hidden" &&
+              style.display !== "none";
+          };
+
+          const normalize = (value) =>
+            (value || "").replace(/\\s+/g, " ").trim();
+
+          const insideChooser = (el) =>
+            !!el.closest(
+              "[role='dialog'],[aria-modal='true'],[data-snackos-address-selection-area='true']"
+            );
+
+          const pickerVisible = () => {
+            const selectors = [
+              "[data-snackos-address-selection-area='true']",
+              "[role='dialog']",
+              "[aria-modal='true']",
+              "[class*='modal' i]",
+              "[class*='popup' i]",
+              "[class*='drawer' i]",
+              "[class*='location' i]",
+              "[class*='address' i]",
+              "[data-testid*='location' i]",
+              "[data-testid*='address' i]"
+            ];
+
+            return Array.from(document.querySelectorAll(selectors.join(",")))
+              .some((el) => {
+                if (!visible(el)) {
+                  return false;
+                }
+                const text = normalize(el.innerText || el.textContent || "");
+                return text.length >= 8 &&
+                  /(address|location|deliver|saved|pincode|pin code|current)/i
+                    .test(text);
+              });
+          };
+
+          const extractAddress = (text) => {
+            const lines = (text || "")
+              .split(/\\n+/)
+              .map((line) => normalize(line))
+              .filter(Boolean);
+            const details = lines.filter((line) =>
+              !/(delivery\\s+in|deliver(?:ing)?\\s+to|change|select|location|address|login|search|cart|minutes?|^\\d+\\s*mins?$)/i
+                .test(line)
+            );
+            if (details.length) {
+              return details.slice(0, 2).join(" ");
+            }
+            if (lines.length > 1) {
+              return lines.slice(1, 3).join(" ");
+            }
+            return "";
+          };
+
+          const activeAddress = () => {
+            document
+              .querySelectorAll("[data-snackos-active-address='true']")
+              .forEach((el) => el.removeAttribute("data-snackos-active-address"));
+
+            const selectors = [
+              "header",
+              "[role='banner']",
+              "[data-testid*='location' i]",
+              "[data-testid*='address' i]",
+              "[class*='location' i]",
+              "[class*='address' i]",
+              "button",
+              "[role='button']",
+              "div",
+              "span"
+            ];
+            const seen = new Set();
+            const candidates = [];
+
+            Array.from(document.querySelectorAll(selectors.join(","))).forEach((el) => {
+              if (seen.has(el) || insideChooser(el) || !visible(el)) {
+                return;
+              }
+              seen.add(el);
+
+              const text = normalize(el.innerText || el.textContent || "");
+              if (
+                text.length < 6 ||
+                text.length > 360 ||
+                !/(delivery\\s+in|deliver(?:ing)?\\s+to|current\\s+location|selected\\s+location|address|location)/i
+                  .test(text)
+              ) {
+                return;
+              }
+              if (/(login|sign in|search|cart|payment|order)/i.test(text)) {
+                return;
+              }
+
+              const address = extractAddress(el.innerText || el.textContent || "");
+              if (!address || address.length < 3) {
+                return;
+              }
+
+              const rect = el.getBoundingClientRect();
+              let score = 0;
+              if (/delivery\\s+in|deliver(?:ing)?\\s+to/i.test(text)) {
+                score += 45;
+              }
+              if (/address|location/i.test(text)) {
+                score += 20;
+              }
+              if (rect.top >= 0 && rect.top < 180) {
+                score += 35;
+              }
+              if (rect.left >= 0 && rect.left < window.innerWidth * 0.7) {
+                score += 15;
+              }
+              if (el.tagName.toLowerCase() === "header" || el.getAttribute("role") === "banner") {
+                score += 10;
+              }
+              score -= Math.min(text.length, 360) / 100;
+
+              candidates.push({ node: el, address, score });
+            });
+
+            candidates.sort((a, b) => b.score - a.score);
+            const selected = candidates[0];
+            if (!selected || selected.score < 25) {
+              return null;
+            }
+
+            selected.node.setAttribute("data-snackos-active-address", "true");
+            return selected.address;
+          };
+
+          const currentAddress = activeAddress();
+          if (!currentAddress) {
+            return false;
+          }
+
+          const current = normalize(currentAddress).toLowerCase();
+          const initial = normalize(initialAddress).toLowerCase();
+          const pickerIsVisible = pickerVisible();
+
+          if (!initial) {
+            return {
+              reason: "delivery address became active",
+              address: currentAddress,
+              picker_visible: pickerIsVisible
+            };
+          }
+
+          if (current !== initial) {
+            return {
+              reason: "delivery address changed",
+              address: currentAddress,
+              picker_visible: pickerIsVisible
+            };
+          }
+
+          if (!pickerIsVisible) {
+            return {
+              reason: "address picker disappeared with active address visible",
+              address: currentAddress,
+              picker_visible: pickerIsVisible
+            };
+          }
+
+          return false;
+        }
+        """,
+        arg={"initialAddress": initial_address or ""},
+        timeout=0,
+    )
+    result = await handle.json_value()
+    if not result or not isinstance(result, dict):
+        await fail_address_selection(
+            page,
+            "Address selection wait ended without a valid delivery address.",
+        )
+
+    log_step(
+        "Address selection detected: "
+        f"{result.get('reason')} | address={result.get('address')!r}"
+    )
+
+
+async def find_address_selection_entrypoint(page: Page) -> Locator | None:
+    timeline("WAITING", "discovering delivery address control")
+    details = await page.evaluate(
+        """
+        () => {
+          const visible = (el) => {
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            return rect.width > 0 &&
+              rect.height > 0 &&
+              style.visibility !== "hidden" &&
+              style.display !== "none";
+          };
+
+          const normalize = (value) =>
+            (value || "").replace(/\\s+/g, " ").trim();
+
+          const labelFor = (el) => normalize([
+            el.innerText,
+            el.textContent,
+            el.getAttribute("aria-label"),
+            el.getAttribute("title"),
+            String(el.className || "")
+          ].filter(Boolean).join(" "));
+
+          document
+            .querySelectorAll("[data-snackos-address-entrypoint='true']")
+            .forEach((el) => el.removeAttribute("data-snackos-address-entrypoint"));
+
+          const selectors = [
+            "header",
+            "[role='banner']",
+            "button",
+            "[role='button']",
+            "a[href]",
+            "[data-testid*='location' i]",
+            "[data-testid*='address' i]",
+            "[class*='location' i]",
+            "[class*='address' i]",
+            "div",
+            "span"
+          ];
+
+          const seen = new Set();
+          const candidates = [];
+
+          Array.from(document.querySelectorAll(selectors.join(","))).forEach((el) => {
+            if (seen.has(el) || !visible(el)) {
+              return;
+            }
+            seen.add(el);
+
+            const label = labelFor(el);
+            const labelLower = label.toLowerCase();
+            if (
+              label.length < 4 ||
+              label.length > 260 ||
+              !/(deliver|delivery|location|address|pincode|pin code|change)/i
+                .test(label)
+            ) {
+              return;
+            }
+            if (/(login|sign in|cart|search|payment|order)/i.test(label)) {
+              return;
+            }
+
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            let score = 0;
+            if (/delivery\\s+in|deliver(?:ing)?\\s+to/i.test(label)) {
+              score += 45;
+            }
+            if (/location|address/i.test(label)) {
+              score += 25;
+            }
+            if (/change|select/i.test(label)) {
+              score += 10;
+            }
+            if (rect.top >= 0 && rect.top < 180) {
+              score += 25;
+            }
+            if (rect.left >= 0 && rect.left < window.innerWidth * 0.65) {
+              score += 15;
+            }
+            if (el.tagName.toLowerCase() === "button" || el.getAttribute("role") === "button") {
+              score += 15;
+            }
+            if (style.cursor === "pointer") {
+              score += 10;
+            }
+            if (style.position === "fixed" || style.position === "sticky") {
+              score += 5;
+            }
+            score -= Math.min(label.length, 260) / 80;
+
+            candidates.push({
+              node: el,
+              label,
+              score,
+              tag: el.tagName.toLowerCase(),
+              role: el.getAttribute("role") || "",
+              top: Math.round(rect.top),
+              left: Math.round(rect.left)
+            });
+          });
+
+          candidates.sort((a, b) => b.score - a.score);
+          const selected = candidates[0];
+          if (!selected || selected.score < 20) {
+            return null;
+          }
+
+          selected.node.setAttribute("data-snackos-address-entrypoint", "true");
+          return {
+            label: selected.label,
+            score: selected.score,
+            tag: selected.tag,
+            role: selected.role,
+            top: selected.top,
+            left: selected.left,
+            count: candidates.length
+          };
+        }
+        """
+    )
+
+    if not details:
+        timeline("WAITING", "no delivery address control candidate found")
+        return None
+
+    log_step(
+        "Selected delivery address control: "
+        f"text={details['label']!r}, tag={details['tag']}, "
+        f"role={details['role']!r}, score={float(details['score']):.1f}, "
+        f"candidates={details['count']}"
+    )
+    return page.locator("[data-snackos-address-entrypoint='true']").first
+
+
+async def find_address_selection_area(page: Page) -> Locator | None:
+    timeline("WAITING", "detecting address chooser or location picker")
+    details = await page.evaluate(
+        """
+        () => {
+          const visible = (el) => {
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            return rect.width > 0 &&
+              rect.height > 0 &&
+              style.visibility !== "hidden" &&
+              style.display !== "none";
+          };
+
+          const normalize = (value) =>
+            (value || "").replace(/\\s+/g, " ").trim();
+
+          document
+            .querySelectorAll("[data-snackos-address-selection-area='true']")
+            .forEach((el) => el.removeAttribute("data-snackos-address-selection-area"));
+
+          const selectors = [
+            "[role='dialog']",
+            "[aria-modal='true']",
+            "[class*='modal' i]",
+            "[class*='popup' i]",
+            "[class*='drawer' i]",
+            "[class*='location' i]",
+            "[class*='address' i]",
+            "[data-testid*='location' i]",
+            "[data-testid*='address' i]",
+            "section",
+            "aside",
+            "div"
+          ];
+
+          const seen = new Set();
+          const candidates = [];
+
+          Array.from(document.querySelectorAll(selectors.join(","))).forEach((el) => {
+            if (seen.has(el) || !visible(el)) {
+              return;
+            }
+            seen.add(el);
+
+            const text = normalize(el.innerText || el.textContent || "");
+            if (
+              text.length < 8 ||
+              text.length > 1800 ||
+              !/(address|location|deliver|saved|pincode|pin code|current)/i.test(text)
+            ) {
+              return;
+            }
+
+            const rect = el.getBoundingClientRect();
+            const role = el.getAttribute("role") || "";
+            const ariaModal = el.getAttribute("aria-modal") || "";
+            let score = 0;
+            if (role === "dialog" || ariaModal === "true") {
+              score += 70;
+            }
+            if (/select\\s+(delivery\\s+)?location|choose\\s+address|saved\\s+addresses/i.test(text)) {
+              score += 60;
+            }
+            if (/detect\\s+current\\s+location|use\\s+current\\s+location|enter\\s+(area|pincode|pin code|location)/i.test(text)) {
+              score += 45;
+            }
+            if (/address|location/i.test(text)) {
+              score += 20;
+            }
+            if (rect.width > 260 && rect.height > 160) {
+              score += 20;
+            }
+            if (rect.top > 40 && rect.top < window.innerHeight * 0.9) {
+              score += 10;
+            }
+            if (text.length > 900) {
+              score -= 20;
+            }
+
+            candidates.push({
+              node: el,
+              text,
+              score,
+              tag: el.tagName.toLowerCase(),
+              role,
+              top: Math.round(rect.top),
+              left: Math.round(rect.left),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height)
+            });
+          });
+
+          candidates.sort((a, b) => b.score - a.score);
+          const selected = candidates[0];
+          if (!selected || selected.score < 45) {
+            return null;
+          }
+
+          selected.node.setAttribute("data-snackos-address-selection-area", "true");
+          return {
+            text: selected.text.slice(0, 220),
+            score: selected.score,
+            tag: selected.tag,
+            role: selected.role,
+            top: selected.top,
+            left: selected.left,
+            width: selected.width,
+            height: selected.height,
+            count: candidates.length
+          };
+        }
+        """
+    )
+
+    if not details:
+        timeline("WAITING", "no address chooser or location picker detected")
+        return None
+
+    log_step(
+        "Address selection area detected: "
+        f"tag={details['tag']}, role={details['role']!r}, "
+        f"score={float(details['score']):.1f}, text={details['text']!r}"
+    )
+    return page.locator("[data-snackos-address-selection-area='true']").first
+
+
+async def read_active_delivery_address(page: Page) -> str | None:
+    timeline("VERIFYING", "active delivery address")
+    details = await page.evaluate(
+        """
+        () => {
+          const visible = (el) => {
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            return rect.width > 0 &&
+              rect.height > 0 &&
+              style.visibility !== "hidden" &&
+              style.display !== "none";
+          };
+
+          const normalize = (value) =>
+            (value || "").replace(/\\s+/g, " ").trim();
+
+          const insideChooser = (el) =>
+            !!el.closest(
+              "[role='dialog'],[aria-modal='true'],[data-snackos-address-selection-area='true']"
+            );
+
+          const extractAddress = (text) => {
+            const lines = (text || "")
+              .split(/\\n+/)
+              .map((line) => normalize(line))
+              .filter(Boolean);
+            const details = lines.filter((line) =>
+              !/(delivery\\s+in|deliver(?:ing)?\\s+to|change|select|location|address|login|search|cart|minutes?|^\\d+\\s*mins?$)/i
+                .test(line)
+            );
+            if (details.length) {
+              return details.slice(0, 2).join(" ");
+            }
+            if (lines.length > 1) {
+              return lines.slice(1, 3).join(" ");
+            }
+            return "";
+          };
+
+          document
+            .querySelectorAll("[data-snackos-active-address='true']")
+            .forEach((el) => el.removeAttribute("data-snackos-active-address"));
+
+          const selectors = [
+            "header",
+            "[role='banner']",
+            "[data-testid*='location' i]",
+            "[data-testid*='address' i]",
+            "[class*='location' i]",
+            "[class*='address' i]",
+            "button",
+            "[role='button']",
+            "div",
+            "span"
+          ];
+          const seen = new Set();
+          const candidates = [];
+
+          Array.from(document.querySelectorAll(selectors.join(","))).forEach((el) => {
+            if (seen.has(el) || insideChooser(el) || !visible(el)) {
+              return;
+            }
+            seen.add(el);
+
+            const text = normalize(el.innerText || el.textContent || "");
+            if (
+              text.length < 6 ||
+              text.length > 360 ||
+              !/(delivery\\s+in|deliver(?:ing)?\\s+to|current\\s+location|selected\\s+location|address|location)/i
+                .test(text)
+            ) {
+              return;
+            }
+            if (/(login|sign in|search|cart|payment|order)/i.test(text)) {
+              return;
+            }
+
+            const address = extractAddress(el.innerText || el.textContent || "");
+            if (!address || address.length < 3) {
+              return;
+            }
+
+            const rect = el.getBoundingClientRect();
+            let score = 0;
+            if (/delivery\\s+in|deliver(?:ing)?\\s+to/i.test(text)) {
+              score += 45;
+            }
+            if (/address|location/i.test(text)) {
+              score += 20;
+            }
+            if (rect.top >= 0 && rect.top < 180) {
+              score += 35;
+            }
+            if (rect.left >= 0 && rect.left < window.innerWidth * 0.7) {
+              score += 15;
+            }
+            if (el.tagName.toLowerCase() === "header" || el.getAttribute("role") === "banner") {
+              score += 10;
+            }
+            score -= Math.min(text.length, 360) / 100;
+
+            candidates.push({
+              node: el,
+              text,
+              address,
+              score,
+              tag: el.tagName.toLowerCase(),
+              role: el.getAttribute("role") || ""
+            });
+          });
+
+          candidates.sort((a, b) => b.score - a.score);
+          const selected = candidates[0];
+          if (!selected || selected.score < 25) {
+            return null;
+          }
+
+          selected.node.setAttribute("data-snackos-active-address", "true");
+          return {
+            address: selected.address,
+            text: selected.text,
+            score: selected.score,
+            tag: selected.tag,
+            role: selected.role,
+            count: candidates.length
+          };
+        }
+        """
+    )
+
+    if not details:
+        timeline("WAITING", "no active delivery address detected")
+        return None
+
+    log_step(
+        "Active delivery address detected: "
+        f"text={details['address']!r}, score={float(details['score']):.1f}, "
+        f"source_tag={details['tag']}, source_role={details['role']!r}"
+    )
+    return str(details["address"])
+
+
+async def fail_address_selection(page: Page, message: str) -> None:
+    await save_failure_artifacts(page, "address_selection_failure")
+    raise AddressSelectionError(message)
 
 
 async def search_product(page: Page, query: str) -> list[dict[str, object]]:
