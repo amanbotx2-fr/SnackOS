@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+server/.venv/
+
+# Playwright
+playwright-report/
+test-results/
+
+# Browser profiles and authentication state
+server/blinkit-profile/
+blinkit-profile/
+**/Session Storage/
+**/Local Storage/
+**/Cookies
+**/Cookies-journal
+**/Login Data
+**/Login Data-journal
+
+# Local firmware configuration
+config.h
+!config.example.h
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+*.crt
+
+# macOS
+.DS_Store
+
+# VSCode
+.vscode/
+
+# Logs
+*.log
+
+# Debug screenshots and generated DOM dumps
+*.png
+*.html
+
+# Keep documentation assets intentional
+!images/.gitkeep
+!docs/**/*.md
+
+# Arduino
+build/
+*.elf
+*.bin
+
+**/__pycache__/
